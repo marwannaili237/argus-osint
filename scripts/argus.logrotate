@@ -1,0 +1,12 @@
+/var/log/argus-osint/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 argus argus
+    postrotate
+        kill -USR1 $(pgrep -f "uvicorn.*argus") 2>/dev/null || true
+    endscript
+}

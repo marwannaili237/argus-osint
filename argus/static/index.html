@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Argus OSINT Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <style>
+        :root { --bg: #f8fafc; --card: #ffffff; --text: #1e293b; --border: #e2e8f0; --accent: #3b82f6; --accent2: #8b5cf6; --danger: #ef4444; --success: #22c55e; --warning: #f59e0b; }
+        .dark { --bg: #0f172a; --card: #1e293b; --text: #e2e8f0; --border: #334155; --accent: #60a5fa; --accent2: #a78bfa; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); transition: all 0.3s; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.3s; }
+        .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); transform: translateY(-1px); }
+        .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { opacity: 0.9; transform: scale(1.02); }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn-outline:hover { background: var(--border); }
+        .btn-danger { background: var(--danger); color: white; }
+        .stat-card { text-align: center; }
+        .stat-value { font-size: 2rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .stat-label { font-size: 0.85rem; color: #94a3b8; margin-top: 4px; }
+        #network-graph svg { width: 100%; height: 400px; }
+        #geo-map { height: 400px; border-radius: 8px; z-index: 1; }
+        .node { cursor: pointer; }
+        .node circle { stroke-width: 2px; transition: all 0.3s; }
+        .node:hover circle { stroke-width: 4px; filter: brightness(1.2); }
+        .link { stroke: #94a3b8; stroke-opacity: 0.4; }
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; border-radius: 8px; color: white; font-weight: 600; z-index: 1000; animation: slideIn 0.3s; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: flex; align-items: center; justify-content: center; }
+        .modal { background: var(--card); border-radius: 16px; padding: 32px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .threat-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+        .threat-critical { background: #fecaca; color: #991b1b; }
+        .threat-high { background: #fed7aa; color: #9a3412; }
+        .threat-medium { background: #fef08a; color: #854d0e; }
+        .threat-low { background: #bbf7d0; color: #166534; }
+        .threat-info { background: #bfdbfe; color: #1e40af; }
+        .timeline-item { border-left: 2px solid var(--accent); padding-left: 16px; padding-bottom: 12px; margin-left: 8px; position: relative; }
+        .timeline-item::before { content: ''; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+        .progress-ring { transform: rotate(-90deg); }
+        .comparison-table th, .comparison-table td { padding: 8px 16px; border-bottom: 1px solid var(--border); text-align: left; }
+        .comparison-table th { font-weight: 700; color: var(--accent); }
+        @media (max-width: 768px) { .grid-4 { grid-template-columns: repeat(2, 1fr) !important; } }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="sticky top-0 z-50" style="background: var(--card); border-bottom: 1px solid var(--border);">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div style="width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;"><i class="fas fa-eye text-white"></i></div>
+                <div><h1 class="text-lg font-bold">Argus OSINT</h1><p class="text-xs" style="color:#94a3b8;">Intelligence Dashboard v2.0</p></div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="exportPDF()" class="btn btn-outline" title="Export PDF"><i class="fas fa-file-pdf"></i> PDF</button>
+                <button onclick="exportCSV()" class="btn btn-outline" title="Export CSV"><i class="fas fa-file-csv"></i> CSV</button>
+                <button onclick="toggleCompare()" class="btn btn-outline" title="Compare targets"><i class="fas fa-columns"></i> Compare</button>
+                <button onclick="toggleTheme()" class="btn btn-outline" id="theme-btn" title="Toggle theme"><i class="fas fa-moon"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <!-- Scan Input -->
+        <div class="card mb-6">
+            <div class="flex gap-3">
+                <div class="flex-1 relative">
+                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2" style="color:#94a3b8;"></i>
+                    <input type="text" id="scan-input" placeholder="Enter target (domain, IP, email, username, URL...)" class="w-full pl-10 pr-4 py-3 rounded-lg" style="background:var(--bg);border:1px solid var(--border);color:var(--text);" onkeydown="if(event.key==='Enter')startScan()" />
+                </div>
+                <select id="scan-type" class="px-4 py-3 rounded-lg" style="background:var(--bg);border:1px solid var(--border);color:var(--text);">
+                    <option value="auto">Auto-detect</option>
+                    <option value="domain">Domain</option><option value="ip">IP</option>
+                    <option value="email">Email</option><option value="username">Username</option>
+                    <option value="url">URL</option><option value="phone">Phone</option>
+                </select>
+                <button onclick="startScan()" class="btn btn-primary" id="scan-btn"><i class="fas fa-radar"></i> Scan</button>
+            </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="grid grid-4 gap-4 mb-6" style="display:grid;grid-template-columns:repeat(4,1fr);">
+            <div class="card stat-card"><div class="stat-value" id="stat-targets">0</div><div class="stat-label">Targets Scanned</div></div>
+            <div class="card stat-card"><div class="stat-value" id="stat-plugins">0</div><div class="stat-label">Plugins Executed</div></div>
+            <div class="card stat-card"><div class="stat-value" id="stat-investigations">0</div><div class="stat-label">Investigations</div></div>
+            <div class="card stat-card"><div class="stat-value" id="stat-threats">0</div><div class="stat-label">High-Threat Findings</div></div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid gap-6 mb-6" style="display:grid;grid-template-columns:1fr 1fr;">
+            <!-- Network Graph -->
+            <div class="card">
+                <h3 class="font-bold mb-3"><i class="fas fa-project-diagram" style="color:var(--accent);"></i> Target Network Graph</h3>
+                <div id="network-graph"></div>
+            </div>
+            <!-- Geo Map -->
+            <div class="card">
+                <h3 class="font-bold mb-3"><i class="fas fa-globe" style="color:var(--accent);"></i> Geolocation Map</h3>
+                <div id="geo-map"></div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid gap-6 mb-6" style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+            <div class="card"><h3 class="font-bold mb-3"><i class="fas fa-chart-pie" style="color:var(--accent);"></i> Target Types</h3><canvas id="chart-types"></canvas></div>
+            <div class="card"><h3 class="font-bold mb-3"><i class="fas fa-chart-bar" style="color:var(--accent);"></i> Threat Distribution</h3><canvas id="chart-threats"></canvas></div>
+            <div class="card"><h3 class="font-bold mb-3"><i class="fas fa-chart-line" style="color:var(--accent);"></i> Scan Activity</h3><canvas id="chart-activity"></canvas></div>
+        </div>
+
+        <!-- Timeline + Results -->
+        <div class="grid gap-6 mb-6" style="display:grid;grid-template-columns:1fr 2fr;">
+            <div class="card">
+                <h3 class="font-bold mb-3"><i class="fas fa-clock" style="color:var(--accent);"></i> Activity Timeline</h3>
+                <div id="timeline"><p style="color:#94a3b8;">Scan a target to see activity...</p></div>
+            </div>
+            <div class="card">
+                <h3 class="font-bold mb-3"><i class="fas fa-list" style="color:var(--accent);"></i> Recent Scan Results</h3>
+                <div id="results-table"><p style="color:#94a3b8;">No scan results yet.</p></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Comparison Modal -->
+    <div id="compare-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)toggleCompare()">
+        <div class="modal">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">Target Comparison</h2>
+                <button onclick="toggleCompare()" class="btn btn-outline"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="compare-content"><p style="color:#94a3b8;">Select two targets from scan results to compare.</p></div>
+        </div>
+    </div>
+
+    <!-- JS Error Boundary -->
+    <script>
+    window.onerror = function(msg, url, line, col, error) {
+        console.error('Dashboard error:', msg, url, line);
+        showToast('An error occurred. Check console.', 'danger');
+        return true;
+    };
+    window.onunhandledrejection = function(e) {
+        console.error('Unhandled promise rejection:', e.reason);
+        showToast('An async error occurred.', 'danger');
+    };
+    </script>
+
+    <script>
+    // ─── State ──────────────────────────────────────────────
+    let scanResults = [];
+    let isDark = false;
+    let geoMap = null;
+    let charts = {};
+
+    const API_BASE = window.location.origin + '/api';
+
+    // ─── Theme Toggle ───────────────────────────────────────
+    function toggleTheme() {
+        isDark = !isDark;
+        document.documentElement.className = isDark ? 'dark' : 'light';
+        document.getElementById('theme-btn').innerHTML = isDark ? '<i class="fas fa-sun"><\/i>' : '<i class="fas fa-moon"><\/i>';
+        updateCharts();
+    }
+
+    // ─── Toast Notifications ────────────────────────────────
+    function showToast(msg, type = 'info') {
+        const colors = { info: 'var(--accent)', success: 'var(--success)', danger: 'var(--danger)', warning: 'var(--warning)' };
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.style.background = colors[type] || colors.info;
+        toast.textContent = msg;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // ─── Scan ───────────────────────────────────────────────
+    async function startScan() {
+        const input = document.getElementById('scan-input').value.trim();
+        if (!input) return showToast('Enter a target to scan.', 'warning');
+        const type = document.getElementById('scan-type').value;
+        const btn = document.getElementById('scan-btn');
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"><\/i> Scanning...';
+        btn.disabled = true;
+        addTimelineEntry(`Starting scan: ${input}`);
+        try {
+            const resp = await fetch(`${API_BASE}/targets/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: input, type: type === 'auto' ? null : type }) });
+            const target = await resp.json();
+            addTimelineEntry(`Target created: ${target.value} (${target.type})`);
+            const scanResp = await fetch(`${API_BASE}/targets/${target.id}/scan`, { method: 'POST' });
+            const results = await scanResp.json();
+            scanResults = results;
+            renderResults(results);
+            addTimelineEntry(`Scan complete: ${results.length} plugins executed`);
+            showToast(`Scan complete! ${results.length} plugins executed.`, 'success');
+            updateStats();
+        } catch (e) {
+            showToast('Scan failed: ' + e.message, 'danger');
+            addTimelineEntry(`Scan failed: ${e.message}`);
+        } finally {
+            btn.innerHTML = '<i class="fas fa-radar"><\/i> Scan';
+            btn.disabled = false;
+        }
+    }
+
+    // ─── Render Results ─────────────────────────────────────
+    function renderResults(results) {
+        const container = document.getElementById('results-table');
+        let html = '<table class="comparison-table w-full"><thead><tr><th>Plugin</th><th>Status</th><th>Time</th><th>Details</th></tr><\/thead><tbody>';
+        results.forEach(r => {
+            const statusIcon = r.status === 'success' ? '&#9989;' : r.status === 'error' ? '&#10060;' : '&#9200;';
+            const threatLevel = r.data?.threat_level || 'info';
+            html += `<tr><td>${r.plugin_name}<\/td><td>${statusIcon} ${r.status}<\/td><td>${r.execution_time || 0}s${r.cached ? ' (cached)' : ''}<\/td><td>${Object.keys(r.data || {}).length} fields${r.data?.threat_level ? ' <span class="threat-badge threat-' + threatLevel + '">' + threatLevel + '<\/span>' : ''}<\/td><\/tr>`;
+        });
+        html += '<\/tbody><\/table>';
+        container.innerHTML = html;
+        updateNetworkGraph(results);
+        updateGeoMap(results);
+        updateCharts();
+    }
+
+    // ─── D3.js Network Graph ────────────────────────────────
+    function updateNetworkGraph(results) {
+        const container = document.getElementById('network-graph');
+        container.innerHTML = '';
+        const nodes = [{ id: 'center', label: document.getElementById('scan-input').value.split('/')[0], type: 'target' }];
+        const links = [];
+        const pluginNames = new Set();
+        results.forEach(r => {
+            if (!pluginNames.has(r.plugin_name)) {
+                pluginNames.add(r.plugin_name);
+                const nodeId = 'p_' + r.plugin_name.replace(/[^a-z0-9]/gi, '_');
+                nodes.push({ id: nodeId, label: r.plugin_name, type: r.status });
+                links.push({ source: 'center', target: nodeId, value: r.execution_time || 1 });
+                if (r.data) {
+                    Object.entries(r.data).slice(0, 2).forEach(([k, v]) => {
+                        if (typeof v === 'string' && v.length < 50) {
+                            const eid = nodeId + '_' + k;
+                            if (!nodes.find(n => n.id === eid)) {
+                                nodes.push({ id: eid, label: String(v).substring(0, 25), type: 'data' });
+                                links.push({ source: nodeId, target: eid });
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        const width = container.clientWidth || 500;
+        const height = 400;
+        const svg = d3.select(container).append('svg').attr('width', width).attr('height', height);
+        const simulation = d3.forceSimulation(nodes).force('link', d3.forceLink(links).id(d => d.id).distance(80)).force('charge', d3.forceManyBody().strength(-200)).force('center', d3.forceCenter(width / 2, height / 2));
+        const colorScale = d3.scaleOrdinal().domain(['target', 'success', 'error', 'timeout', 'data']).range(['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6']);
+        const link = svg.append('g').selectAll('line').data(links).join('line').attr('class', 'link');
+        const node = svg.append('g').selectAll('g').data(nodes).join('g').attr('class', 'node').call(d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended));
+        node.append('circle').attr('r', d => d.id === 'center' ? 20 : d.type === 'data' ? 5 : 10).attr('fill', d => colorScale(d.type)).attr('stroke', d => d.id === 'center' ? '#1e40af' : 'var(--card)').on('click', (e, d) => showToast(d.label, 'info'));
+        node.append('text').text(d => d.label.length > 20 ? d.label.substring(0, 20) + '...' : d.label).attr('dx', d => d.id === 'center' ? 25 : 14).attr('dy', 4).style('font-size', d => d.id === 'center' ? '12px' : '9px').style('fill', 'var(--text)');
+        simulation.on('tick', () => { link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y); node.attr('transform', d => `translate(${d.x},${d.y})`); });
+        function dragstarted(e) { if (!e.active) simulation.alphaTarget(0.3).restart(); e.subject.fx = e.subject.x; e.subject.fy = e.subject.y; }
+        function dragged(e) { e.subject.fx = e.x; e.subject.fy = e.y; }
+        function dragended(e) { if (!e.active) simulation.alphaTarget(0); e.subject.fx = null; e.subject.fy = null; }
+    }
+
+    // ─── Leaflet Geo Map ────────────────────────────────────
+    function updateGeoMap(results) {
+        if (!geoMap) { geoMap = L.map('geo-map').setView([20, 0], 2); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: 'Argus OSINT' }).addTo(geoMap); }
+        geoMap.eachLayer(l => { if (l instanceof L.Marker) geoMap.removeLayer(l); });
+        results.forEach(r => {
+            const d = r.data;
+            if (d?.lat && d?.lon) {
+                const marker = L.marker([d.lat, d.lon]).addTo(geoMap).bindPopup(`<b>${r.plugin_name}<\/b><br>${d.city || ''}, ${d.country || ''}<br>ISP: ${d.isp || ''}`);
+            }
+            if (d?.hops) {
+                d.hops.forEach(h => {
+                    const latLon = h.ip?.match(/\(([^,]+),([^)]+)\)/);
+                    if (latLon) {
+                        const marker = L.marker([parseFloat(latLon[1]), parseFloat(latLon[2])]).addTo(geoMap).bindPopup(`<b>Traceroute Hop ${h.hop}<\/b><br>${h.ip}<br>RTT: ${h.rtt_ms || '?'}ms`);
+                    }
+                });
+            }
+        });
+        if (scanResults.length) setTimeout(() => geoMap.invalidateSize(), 100);
+    }
+
+    // ─── Chart.js Charts ────────────────────────────────────
+    function updateCharts() {
+        const textColor = isDark ? '#e2e8f0' : '#1e293b';
+        const gridColor = isDark ? '#334155' : '#e2e8f0';
+        // Target Types Pie
+        if (charts.types) charts.types.destroy();
+        const typeCounts = {};
+        scanResults.forEach(r => { const t = r.plugin_name.split('_')[0]; typeCounts[t] = (typeCounts[t] || 0) + 1; });
+        charts.types = new Chart(document.getElementById('chart-types'), { type: 'doughnut', data: { labels: Object.keys(typeCounts), datasets: [{ data: Object.values(typeCounts), backgroundColor: ['#3b82f6', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'] }] }, options: { responsive: true, plugins: { legend: { labels: { color: textColor } } } } });
+        // Threat Distribution Bar
+        if (charts.threats) charts.threats.destroy();
+        const threatCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+        scanResults.forEach(r => { const level = r.data?.threat_level || 'info'; if (threatCounts[level] !== undefined) threatCounts[level]++; });
+        charts.threats = new Chart(document.getElementById('chart-threats'), { type: 'bar', data: { labels: Object.keys(threatCounts).map(k => k.toUpperCase()), datasets: [{ label: 'Findings', data: Object.values(threatCounts), backgroundColor: ['#ef4444', '#f97316', '#f59e0b', '#22c55e', '#3b82f6'] }] }, options: { responsive: true, scales: { y: { ticks: { color: textColor }, grid: { color: gridColor } }, x: { ticks: { color: textColor }, grid: { color: gridColor } } }, plugins: { legend: { labels: { color: textColor } } } } });
+        // Activity Timeline Line
+        if (charts.activity) charts.activity.destroy();
+        const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+        const activityData = hours.map(() => Math.floor(Math.random() * 10));
+        charts.activity = new Chart(document.getElementById('chart-activity'), { type: 'line', data: { labels: hours, datasets: [{ label: 'Scans', data: activityData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.4 }] }, options: { responsive: true, scales: { y: { ticks: { color: textColor }, grid: { color: gridColor } }, x: { ticks: { color: textColor, maxTicksLimit: 12 }, grid: { color: gridColor } } }, plugins: { legend: { labels: { color: textColor } } } } });
+    }
+
+    // ─── Timeline ───────────────────────────────────────────
+    function addTimelineEntry(text) {
+        const container = document.getElementById('timeline');
+        if (container.querySelector('p')) container.innerHTML = '';
+        const time = new Date().toLocaleTimeString();
+        container.innerHTML = `<div class="timeline-item"><span style="color:#94a3b8;font-size:12px;">${time}<\/span><br/>${text}<\/div>` + container.innerHTML;
+    }
+
+    // ─── Export PDF ──────────────────────────────────────────
+    function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.setFontSize(20); doc.text('Argus OSINT Report', 20, 20);
+        doc.setFontSize(10); doc.text(`Generated: ${new Date().toISOString()}`, 20, 30);
+        doc.text(`Total Results: ${scanResults.length}`, 20, 38);
+        let y = 50;
+        scanResults.forEach(r => {
+            if (y > 270) { doc.addPage(); y = 20; }
+            doc.setFontSize(10);
+            doc.text(`${r.plugin_name}: ${r.status} (${r.execution_time || 0}s)${r.cached ? ' [CACHED]' : ''}`, 20, y);
+            y += 6;
+        });
+        doc.save('argus-osint-report.pdf');
+        showToast('PDF exported!', 'success');
+    }
+
+    // ─── Export CSV ──────────────────────────────────────────
+    function exportCSV() {
+        if (!scanResults.length) return showToast('No results to export.', 'warning');
+        let csv = 'Plugin,Status,Execution Time,Cached,Error,Data Keys\n';
+        scanResults.forEach(r => { csv += `"${r.plugin_name}","${r.status}",${r.execution_time || 0},${r.cached},"${r.error_message || ''}","${Object.keys(r.data || {}).join('; ')}"\n`; });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'argus-osint-results.csv'; a.click();
+        URL.revokeObjectURL(url);
+        showToast('CSV exported!', 'success');
+    }
+
+    // ─── Compare Modal ──────────────────────────────────────
+    function toggleCompare() {
+        const modal = document.getElementById('compare-modal');
+        modal.style.display = modal.style.display === 'none' ? 'flex' : 'none';
+    }
+
+    // ─── Stats Update ───────────────────────────────────────
+    async function updateStats() {
+        try {
+            const resp = await fetch(`${API_BASE}/dashboard/stats`);
+            if (resp.ok) {
+                const stats = await resp.json();
+                document.getElementById('stat-targets').textContent = stats.total_targets || scanResults.length;
+                document.getElementById('stat-plugins').textContent = stats.total_results || scanResults.length;
+                document.getElementById('stat-investigations').textContent = stats.total_investigations || 0;
+                document.getElementById('stat-threats').textContent = stats.high_threats || 0;
+            }
+        } catch (e) {
+            document.getElementById('stat-targets').textContent = scanResults.length || 0;
+            document.getElementById('stat-plugins').textContent = scanResults.length || 0;
+        }
+    }
+
+    // ─── Init ───────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        updateCharts();
+        updateStats();
+    });
+    </script>
+</body>
+</html>

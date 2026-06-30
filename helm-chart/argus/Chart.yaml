@@ -1,0 +1,16 @@
+apiVersion: v2
+name: argus-osint
+description: Argus OSINT - Open Source Intelligence Platform
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+maintainers:
+  - name: marwannaili237
+keywords:
+  - osint
+  - security
+  - intelligence
+  - investigation
+  - fastapi
+  - telegram
+home: https://github.com/marwannaili237/argus-osint

@@ -1,0 +1,31 @@
+version: "3.8"
+services:
+  argus:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/argus.db
+      - BOT_TOKEN=${BOT_TOKEN:-}
+      - SHODAN_API_KEY=${SHODAN_API_KEY:-}
+      - VIRUSTOTAL_API_KEY=${VIRUSTOTAL_API_KEY:-}
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  tor-proxy:
+    image: dperson/torproxy
+    network_mode: "service"
+    ports:
+      - "9050:9050"
+    restart: unless-stopped
+volumes:
+  data:
+    driver: local

@@ -1,0 +1,17 @@
+[Unit]
+Description=Argus OSINT Intelligence Platform
+After=network-online
+Wants=network-online
+
+[Service]
+Type=simple
+User=argus
+Group=argus
+WorkingDirectory=/opt/argus-osint
+ExecStart=/usr/bin/python3 -m uvicorn argus.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
