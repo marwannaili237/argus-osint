@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Run startup validation checks
     from argus.startup import run_startup_checks
-    report = run_startup_checks()
+    report = await run_startup_checks()
     if report.errors:
         logger.error("Startup found %d CRITICAL error(s):", len(report.errors))
         for err in report.errors:

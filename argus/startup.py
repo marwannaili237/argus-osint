@@ -48,9 +48,8 @@ class StartupReport:
 
 # ── Checkers ─────────────────────────────────────────────────────────
 
-def _check_database(report: StartupReport) -> None:
+async def _check_database(report: StartupReport) -> None:
     """Verify database connectivity by performing a simple connection test."""
-    import asyncio
     from argus.database import engine
 
     async def _test() -> str:
@@ -62,13 +61,7 @@ def _check_database(report: StartupReport) -> None:
         except Exception as exc:
             return str(exc)
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    result = loop.run_until_complete(_test())
+    result = await _test()
     if result == "ok":
         report.add("database", "ok", "Database connection successful")
     else:
@@ -236,7 +229,7 @@ def _check_cors(report: StartupReport) -> None:
 
 # ── Main Entry Point ──────────────────────────────────────────────────
 
-def run_startup_checks() -> StartupReport:
+async def run_startup_checks() -> StartupReport:
     """Execute all startup validation checks.
 
     Returns a StartupReport with detailed results for logging and alerting.
@@ -246,7 +239,7 @@ def run_startup_checks() -> StartupReport:
 
     logger.info("Running Argus OSINT startup checks …")
 
-    _check_database(report)
+    await _check_database(report)
     _check_bot_token(report)
     _check_api_keys(report)
     _check_smtp(report)
